@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LIFF Video Upload</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body>
+
+  <h1>ถ่ายวีดีโอและอัปโหลด</h1>
+  
+  <!-- ปุ่มเปิดกล้อง -->
+  <button onclick="startVideo()">เปิดกล้อง</button>
+  
+  <!-- ตัวแสดงภาพวีดีโอ -->
+  <video id="video" width="100%" height="auto" autoplay></video>
+  
+  <!-- ปุ่มถ่ายวีดีโอ -->
+  <button onclick="captureVideo()">ถ่ายวีดีโอ</button>
+  
+  <!-- ช่องทางสำหรับแสดงผล -->
+  <div id="status"></div>
+  
+  <script>
+    let videoElement = document.getElementById("video");
+    let videoStream;
+    
+    // ฟังก์ชันเปิดกล้อง
+    function startVideo() {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ video: true })
+          .then(function(stream) {
+            videoElement.srcObject = stream;
+            videoStream = stream;
+          })
+          .catch(function(error) {
+            alert("เกิดข้อผิดพลาด: " + error.message);
+          });
+      } else {
+        alert("ไม่รองรับกล้องในเบราว์เซอร์นี้");
+      }
+    }
+    
+    // ฟังก์ชันบันทึกวีดีโอ
+    function captureVideo() {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // กำหนดขนาดของภาพจากวีดีโอ
+      canvas.width = videoElement.videoWidth;
+      canvas.height = videoElement.videoHeight;
+      
+      // วาดภาพจากวีดีโอลงใน canvas
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      
+      // แปลงภาพจาก canvas เป็น Blob
+      canvas.toBlob(function(blob) {
+        uploadVideo(blob);
+      }, 'video/webm');
+    }
+    
+    // ฟังก์ชันอัปโหลดวีดีโอไปยังเซิร์ฟเวอร์
+    function uploadVideo(blob) {
+      const formData = new FormData();
+      formData.append("file", blob, "video.webm");
+      
+      fetch("https://yourserver.com/upload", { // เปลี่ยน URL นี้เป็น URL ของเซิร์ฟเวอร์ที่คุณต้องการอัปโหลด
+        method: "POST",
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showDialog("Success");
+        } else {
+          showDialog("เกิดข้อผิดพลาดในการอัปโหลด");
+        }
+      })
+      .catch(error => {
+        showDialog("เกิดข้อผิดพลาด: " + error.message);
+      });
+    }
+    
+    // ฟังก์ชันแสดง Dialog
+    function showDialog(message) {
+      const statusDiv = document.getElementById("status");
+      statusDiv.textContent = message;
+      alert(message);
+    }
+  </script>
+
+</body>
+</html>
