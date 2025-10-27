@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LIFF Video Upload with Preview</title>
+  <title>LIFF Video Upload with Preview & Retake</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     body {
@@ -35,6 +35,9 @@
     button:disabled {
       background-color: #aaa;
     }
+    #deleteBtn {
+      background-color: #e74c3c;
+    }
     #status {
       margin-top: 15px;
       font-weight: bold;
@@ -44,10 +47,10 @@
 </head>
 <body>
 
-  <h1>📸 ถ่ายหรืออัปโหลดวีดีโอ (พร้อมพรีวิว)</h1>
+  <h1>📸 ถ่ายหรืออัปโหลดวีดีโอ (พร้อมพรีวิว & ถ่ายใหม่)</h1>
 
-  <!-- สำหรับใช้งานบนมือถือใน LINE -->
-  <input type="file" id="videoInput" accept="video/*" capture="camera">
+  <!-- สำหรับ LINE LIFF -->
+  <input type="file" id="videoInput" accept="video/*" capture="environment">
 
   <!-- สำหรับเบราว์เซอร์ทั่วไป -->
   <button id="startBtn">เปิดกล้อง</button>
@@ -55,11 +58,14 @@
   <button id="recordBtn" disabled>เริ่มอัดวีดีโอ</button>
   <button id="stopBtn" disabled>หยุดอัด</button>
 
-  <!-- Preview หลังอัดหรือเลือกไฟล์ -->
-  <h3>🎞️ พรีวิววีดีโอก่อนอัปโหลด</h3>
+  <!-- Preview -->
+  <h3>🎞️ พรีวิววีดีโอ</h3>
   <video id="previewVideo" controls style="display:none;"></video>
 
-  <button id="uploadBtn" style="display:none;">อัปโหลดวีดีโอ</button>
+  <div>
+    <button id="uploadBtn" style="display:none;">อัปโหลดวีดีโอ</button>
+    <button id="deleteBtn" style="display:none;">ลบวีดีโอ / ถ่ายใหม่</button>
+  </div>
 
   <div id="status"></div>
 
@@ -67,10 +73,10 @@
     // ===== LIFF Initialization =====
     document.addEventListener("DOMContentLoaded", async () => {
       try {
-        await liff.init({ liffId: "2008338659-J451kb28" }); // <-- ใส่ LIFF ID ของคุณตรงนี้
-        console.log("LIFF initialized");
+        await liff.init({ liffId: "2008338659-J451kb28" }); // 🔑 ใส่ LIFF ID ของคุณ
+        console.log("✅ LIFF initialized");
       } catch (err) {
-        console.warn("LIFF init failed:", err);
+        console.warn("⚠️ LIFF init failed:", err);
       }
     });
 
@@ -81,32 +87,39 @@
     const video = document.getElementById("video");
     const previewVideo = document.getElementById("previewVideo");
     const uploadBtn = document.getElementById("uploadBtn");
+    const deleteBtn = document.getElementById("deleteBtn");
 
     let mediaRecorder;
     let recordedChunks = [];
     let finalBlob = null;
+    let videoStream = null;
 
-    // ====== สำหรับมือถือ / LIFF ======
+    // ===== สำหรับมือถือ / LIFF =====
     videoInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) return;
-
-      finalBlob = file;
-      const url = URL.createObjectURL(file);
-      previewVideo.src = url;
-      previewVideo.style.display = "block";
-      uploadBtn.style.display = "inline-block";
+      preview(file);
     });
 
-    // ====== สำหรับ browser ปกติ ======
+    // ===== สำหรับ browser ปกติ =====
     startBtn.onclick = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        // 🔁 ใช้กล้องหลัง (facingMode: "environment")
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: "environment" } },
+          audio: true
+        }).catch(async (err) => {
+          console.warn("กล้องหลังอาจไม่พร้อม, ใช้กล้องหน้าแทน:", err);
+          return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        });
+
+        videoStream = stream;
         video.srcObject = stream;
         recordBtn.disabled = false;
+        showDialog("เปิดกล้องแล้ว พร้อมอัดวีดีโอ");
         recordBtn.onclick = () => startRecording(stream);
       } catch (err) {
-        showDialog("เปิดกล้องไม่ได้: " + err.message);
+        showDialog("❌ เปิดกล้องไม่ได้: " + err.message);
       }
     };
 
@@ -120,11 +133,7 @@
 
       mediaRecorder.onstop = () => {
         finalBlob = new Blob(recordedChunks, { type: "video/webm" });
-        const url = URL.createObjectURL(finalBlob);
-        previewVideo.src = url;
-        previewVideo.style.display = "block";
-        uploadBtn.style.display = "inline-block";
-        showDialog("✅ ถ่ายเสร็จแล้ว ดูพรีวิวได้เลย");
+        preview(finalBlob);
       };
 
       mediaRecorder.start();
@@ -134,7 +143,40 @@
       stopBtn.onclick = () => mediaRecorder.stop();
     }
 
-    // ====== ปุ่มอัปโหลด ======
+    // ===== แสดงพรีวิว =====
+    function preview(fileOrBlob) {
+      const url = URL.createObjectURL(fileOrBlob);
+      finalBlob = fileOrBlob;
+      previewVideo.src = url;
+      previewVideo.style.display = "block";
+      uploadBtn.style.display = "inline-block";
+      deleteBtn.style.display = "inline-block";
+
+      // ปิดกล้องทันทีเพื่อประหยัดแบต
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+      }
+      recordBtn.disabled = true;
+      stopBtn.disabled = true;
+      showDialog("✅ ดูพรีวิวได้แล้ว");
+    }
+
+    // ===== ลบวีดีโอ / ถ่ายใหม่ =====
+    deleteBtn.onclick = () => {
+      finalBlob = null;
+      previewVideo.src = "";
+      previewVideo.style.display = "none";
+      uploadBtn.style.display = "none";
+      deleteBtn.style.display = "none";
+      videoInput.value = "";
+      showDialog("🔁 วีดีโอถูกลบแล้ว สามารถถ่ายใหม่ได้");
+      startBtn.disabled = false;
+      recordBtn.disabled = true;
+      stopBtn.disabled = true;
+    };
+
+    // ===== ปุ่มอัปโหลด =====
     uploadBtn.onclick = async () => {
       if (!finalBlob) {
         showDialog("ไม่มีไฟล์วีดีโอที่จะอัปโหลด");
