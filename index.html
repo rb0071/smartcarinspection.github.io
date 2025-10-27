@@ -5,88 +5,154 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LIFF Video Upload</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body {
+      font-family: "Prompt", sans-serif;
+      text-align: center;
+      margin: 20px;
+      background-color: #f8f8f8;
+    }
+    h1 {
+      color: #333;
+    }
+    video {
+      width: 100%;
+      max-width: 400px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+    button, input[type=file] {
+      margin: 10px;
+      padding: 10px 15px;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      background-color: #06C755;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #aaa;
+    }
+    #status {
+      margin-top: 15px;
+      font-weight: bold;
+      color: #333;
+    }
+  </style>
 </head>
 <body>
 
-  <h1>ถ่ายวีดีโอและอัปโหลด</h1>
-  
-  <!-- ปุ่มเปิดกล้อง -->
-  <button onclick="startVideo()">เปิดกล้อง</button>
-  
-  <!-- ตัวแสดงภาพวีดีโอ -->
-  <video id="video" width="100%" height="auto" autoplay></video>
-  
-  <!-- ปุ่มถ่ายวีดีโอ -->
-  <button onclick="captureVideo()">ถ่ายวีดีโอ</button>
-  
-  <!-- ช่องทางสำหรับแสดงผล -->
+  <h1>📸 ถ่ายหรืออัปโหลดวีดีโอ</h1>
+
+  <!-- สำหรับใช้งานบนมือถือใน LINE -->
+  <input type="file" id="videoInput" accept="video/*" capture="camera">
+
+  <!-- สำหรับเบราว์เซอร์ทั่วไป -->
+  <button id="startBtn">เปิดกล้อง</button>
+  <video id="video" autoplay playsinline></video>
+  <button id="recordBtn" disabled>เริ่มอัดวีดีโอ</button>
+  <button id="stopBtn" disabled>หยุดอัด</button>
+
   <div id="status"></div>
-  
+
   <script>
-    let videoElement = document.getElementById("video");
-    let videoStream;
-    
-    // ฟังก์ชันเปิดกล้อง
-    function startVideo() {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ video: true })
-          .then(function(stream) {
-            videoElement.srcObject = stream;
-            videoStream = stream;
-          })
-          .catch(function(error) {
-            alert("เกิดข้อผิดพลาด: " + error.message);
-          });
-      } else {
-        alert("ไม่รองรับกล้องในเบราว์เซอร์นี้");
+    // ===== LIFF Initialization =====
+    document.addEventListener("DOMContentLoaded", async () => {
+      try {
+        await liff.init({ liffId: "YOUR_LIFF_ID" }); // <-- ใส่ LIFF ID ของคุณตรงนี้
+        console.log("LIFF initialized");
+      } catch (err) {
+        console.warn("LIFF init failed:", err);
       }
+    });
+
+    // ===== ใช้ input file (ใช้ได้แน่ใน LIFF) =====
+    const videoInput = document.getElementById("videoInput");
+    videoInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      showDialog("กำลังอัปโหลด...");
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const res = await fetch("https://yourserver.com/upload", { // 👈 เปลี่ยน URL เป็นของคุณ
+          method: "POST",
+          body: formData
+        });
+        const data = await res.json();
+        showDialog(data.success ? "✅ อัปโหลดสำเร็จ" : "❌ อัปโหลดไม่สำเร็จ");
+      } catch (err) {
+        showDialog("เกิดข้อผิดพลาด: " + err.message);
+      }
+    });
+
+    // ===== สำหรับ browser ปกติ =====
+    const startBtn = document.getElementById("startBtn");
+    const recordBtn = document.getElementById("recordBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const video = document.getElementById("video");
+
+    let mediaRecorder;
+    let recordedChunks = [];
+
+    startBtn.onclick = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        video.srcObject = stream;
+        recordBtn.disabled = false;
+
+        recordBtn.onclick = () => startRecording(stream);
+      } catch (err) {
+        showDialog("เปิดกล้องไม่ได้: " + err.message);
+      }
+    };
+
+    function startRecording(stream) {
+      recordedChunks = [];
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+
+      mediaRecorder.ondataavailable = e => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = uploadVideo;
+
+      mediaRecorder.start();
+      showDialog("🎥 กำลังอัดวีดีโอ...");
+      recordBtn.disabled = true;
+      stopBtn.disabled = false;
+      stopBtn.onclick = () => mediaRecorder.stop();
     }
-    
-    // ฟังก์ชันบันทึกวีดีโอ
-    function captureVideo() {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      // กำหนดขนาดของภาพจากวีดีโอ
-      canvas.width = videoElement.videoWidth;
-      canvas.height = videoElement.videoHeight;
-      
-      // วาดภาพจากวีดีโอลงใน canvas
-      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-      
-      // แปลงภาพจาก canvas เป็น Blob
-      canvas.toBlob(function(blob) {
-        uploadVideo(blob);
-      }, 'video/webm');
-    }
-    
-    // ฟังก์ชันอัปโหลดวีดีโอไปยังเซิร์ฟเวอร์
-    function uploadVideo(blob) {
+
+    async function uploadVideo() {
+      const blob = new Blob(recordedChunks, { type: "video/webm" });
       const formData = new FormData();
       formData.append("file", blob, "video.webm");
-      
-      fetch("https://yourserver.com/upload", { // เปลี่ยน URL นี้เป็น URL ของเซิร์ฟเวอร์ที่คุณต้องการอัปโหลด
-        method: "POST",
-        body: formData
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          showDialog("Success");
-        } else {
-          showDialog("เกิดข้อผิดพลาดในการอัปโหลด");
-        }
-      })
-      .catch(error => {
-        showDialog("เกิดข้อผิดพลาด: " + error.message);
-      });
+
+      showDialog("กำลังอัปโหลด...");
+
+      try {
+        const res = await fetch("https://yourserver.com/upload", { // 👈 เปลี่ยน URL เป็นของคุณ
+          method: "POST",
+          body: formData
+        });
+        const data = await res.json();
+        showDialog(data.success ? "✅ อัปโหลดสำเร็จ" : "❌ อัปโหลดไม่สำเร็จ");
+      } catch (err) {
+        showDialog("เกิดข้อผิดพลาด: " + err.message);
+      }
+
+      recordBtn.disabled = false;
+      stopBtn.disabled = true;
     }
-    
-    // ฟังก์ชันแสดง Dialog
-    function showDialog(message) {
-      const statusDiv = document.getElementById("status");
-      statusDiv.textContent = message;
-      alert(message);
+
+    function showDialog(msg) {
+      document.getElementById("status").textContent = msg;
+      console.log(msg);
     }
   </script>
 
